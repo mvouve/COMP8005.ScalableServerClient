@@ -22,6 +22,7 @@ package main
 
 import (
 	"container/list"
+	"fmt"
 	"log"
 	"reflect"
 
@@ -57,14 +58,14 @@ func generateReport(fname string, elements *list.List) {
 	report, _ := doc.AddSheet("Sheet 1") // TODO: make this more generalised?
 	generateHeaders(elements.Front().Value, report.AddRow())
 	for e := elements.Front(); e != nil; e = e.Next() {
-		generateRow(e, report.AddRow())
+		generateRow(e.Value, report.AddRow())
 		if report.MaxRow >= ExcelMaxRows {
 			log.Println("Too many entries for report, stopping at ", report.MaxRow)
 			break
 		}
 	}
-
-	doc.Save(fname)
+	fmt.Println("Saving file")
+	doc.Save(fname + ".xlsx")
 }
 
 /*-----------------------------------------------------------------------------
@@ -89,6 +90,7 @@ func generateReport(fname string, elements *list.List) {
 ------------------------------------------------------------------------------*/
 func generateHeaders(i interface{}, row *xlsx.Row) {
 	fields := reflect.ValueOf(i)
+	fmt.Println(i)
 	for i := 0; i < fields.NumField(); i++ {
 		cell := row.AddCell()
 		cell.SetString(fields.Type().Field(i).Name)
@@ -119,6 +121,6 @@ func generateRow(i interface{}, row *xlsx.Row) {
 	fields := reflect.ValueOf(i)
 	for i := 0; i < fields.NumField(); i++ {
 		cell := row.AddCell()
-		cell.SetValue(fields.Interface())
+		cell.SetValue(fields.Field(i).Interface())
 	}
 }

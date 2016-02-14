@@ -1,8 +1,36 @@
+/*------------------------------------------------------------------------------
+-- DATE:	       February, 2016
+--
+-- Source File:	 child_proc.go
+--
+-- REVISIONS: 	(Date and Description)
+--
+-- DESIGNER:	   Marc Vouve
+--
+-- PROGRAMMER:	 Marc Vouve
+--
+--
+-- INTERFACE:
+--	func newConnection(listenFd int) (connectionInfo, error)
+--	func hostString(socketAddr syscall.Sockaddr) string
+--  func listen(srvInfo serverInfo)
+--  func addConnectionToEPoll(epFd int, newFd int)
+--  func endConnection(srvInfo serverInfo, conn connectionInfo)
+--  func handleData(conn *connectionInfo) (int, error)
+--  func read(fd int) (string, error)
+--
+--
+--
+-- NOTES: This file is for functions that are part of child go routines which
+--        handle data for the EPoll version of the scalable server.
+------------------------------------------------------------------------------*/
+
 package main
 
 import (
 	"bufio"
 	"container/list"
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
@@ -18,9 +46,9 @@ import (
 var waitGroup sync.WaitGroup
 
 type clientInfo struct {
-	ammountOfData int
-	requestsMade  int
-	responseTime  time.Duration
+	AmmountOfData int
+	RequestsMade  int
+	ResponseTime  time.Duration
 }
 
 /*-----------------------------------------------------------------------------
@@ -91,7 +119,7 @@ Options:
 ------------------------------------------------------------------------------*/
 func audit(cInfo chan clientInfo) {
 	wait := make(chan bool)
-	waitRoutine(wait)
+	//go waitRoutine(wait)
 	cList := new(list.List)
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, os.Kill)
@@ -171,7 +199,46 @@ func parseInt(argName string, str string) int {
 --
 -- PROGRAMMER:	Marc Vouve
 --
--- INTERFACE:		func connect(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo)
+-- INTERFACE:		testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, int)
+--	    conn:		The connection to the server.
+--
+-- RETURNS: 		time.Duration: the average time the server took to echo.
+--							int: The ammount of itterations actually completed, regardless of errors.
+--
+-- NOTES:			If this errors, it breaks out of echoing, therefore the input itterations
+--						may not be acurate to the number of total itterations, which is returned.
+------------------------------------------------------------------------------*/
+func testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, int) {
+	str := strGen(strLen)
+	stopWatch := time.Now()
+	readWriter := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+	var i int
+	for i = 0; i < itterations; i++ {
+		_, err := conn.Write([]byte(str))
+		if err != nil {
+			log.Println(err)
+			break
+		}
+		fmt.Println(str)
+		readWriter.ReadBytes('\n')
+	}
+	avgResponce := time.Duration(int64(time.Now().Sub(stopWatch)) / int64(itterations))
+
+	return avgResponce, i
+}
+
+/*-----------------------------------------------------------------------------
+-- FUNCTION:    client
+--
+-- DATE:        February 8, 2016
+--
+-- REVISIONS:	  February 13, 2016 - Added in auditing.
+--
+-- DESIGNER:		Marc Vouve
+--
+-- PROGRAMMER:	Marc Vouve
+--
+-- INTERFACE:		client(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo)
 --	    host:   The server to connect to.
 --		strLen:	  The length of the string to send.
 --		repeat:		The number of times to reconnect to the server.
@@ -184,39 +251,19 @@ func parseInt(argName string, str string) int {
 -- NOTES:			If this errors, it breaks out of echoing, therefore the input itterations
 --						may not be acurate to the number of total itterations, which is returned.
 ------------------------------------------------------------------------------*/
-func connect(conn net.Conn, strLen int, itterations int) (time.Duration, int) {
-	defer waitGroup.Done()
-
-	stopWatch := time.Now()
-	str := strGen(strLen)
-	readWriter := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
-	var i int
-	for i = 0; i < itterations; i++ {
-
-		_, err := conn.Write([]byte(str))
-		if err != nil {
-			log.Println(err)
-			break
-		}
-		readWriter.ReadBytes('\n')
-	}
-	avgResponce := time.Duration(int64(time.Now().Sub(stopWatch)) / int64(itterations))
-
-	return avgResponce, i
-}
-
 func client(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo) {
 	defer waitGroup.Done()
-	for j := 0; j > repeat; j++ {
-
+	for j := 0; j < repeat; j++ {
+		fmt.Println(itterations)
 		conn, err := net.Dial("tcp", host)
-		defer conn.Close()
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		avgTime, iCompleted := connect(conn, strLen, itterations)
-		cInfo <- clientInfo{responseTime: avgTime, ammountOfData: strLen * iCompleted, requestsMade: iCompleted}
+		defer conn.Close()
+
+		avgTime, iCompleted := testConnection(conn, strLen, itterations)
+		cInfo <- clientInfo{ResponseTime: avgTime, AmmountOfData: strLen * iCompleted, RequestsMade: iCompleted}
 	}
 }
 
