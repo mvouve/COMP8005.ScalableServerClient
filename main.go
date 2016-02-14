@@ -6,6 +6,8 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
+	"os/signal"
 	"strconv"
 	"sync"
 	"time"
@@ -56,17 +58,44 @@ Options:
 	itterations := parseInt("-i ITTERATIONS", arguments["-i"].(string))
 	repeatition := parseInt("-r REPITITION", arguments["-r"].(string))
 	addr := arguments["<address>"].(string)
+	cInfo := make(chan clientInfo, 100)
 
 	for i := 0; i < clients; i++ {
 		waitGroup.Add(1)
-		go connect(addr, strSize, itterations, repeatition)
+		go client(addr, strSize, itterations, repeatition, cInfo)
 	}
-	waitGroup.Wait()
+	audit(cInfo)
+
 }
 
+/*-----------------------------------------------------------------------------
+-- FUNCTION:    audit
+--
+-- DATE:        February 13, 2016
+--
+-- REVISIONS:	  (DATE - DESCRIPTION)
+--
+-- DESIGNER:		Marc Vouve
+--
+-- PROGRAMMER:	Marc Vouve
+--
+-- INTERFACE:		audit(cInfo chan clientInfo)
+-- 		 cInfo:		A channel to push client into into.
+--
+-- RETURNS: 		void
+--
+-- NOTES:			This function collects data from various go routines about connections
+--						to the server. Before the program exits it saves the information to
+--						an excel spreadsheet named by the current time, in the current
+--            directory
+------------------------------------------------------------------------------*/
 func audit(cInfo chan clientInfo) {
-	wait := make(chan int)
+	wait := make(chan bool)
+	waitRoutine(wait)
 	cList := new(list.List)
+	osSignals := make(chan os.Signal, 1)
+	signal.Notify(osSignals, os.Interrupt, os.Kill)
+
 	for {
 		select {
 		case c := <-cInfo:
@@ -74,15 +103,54 @@ func audit(cInfo chan clientInfo) {
 		case <-wait:
 			generateReport(time.Now().String(), cList)
 			return
+		case <-osSignals: // if for some reason wait never fires still gen a list.
+			generateReport(time.Now().String(), cList)
+			return
 		}
 	}
 }
 
+/*-----------------------------------------------------------------------------
+-- FUNCTION:    waitRoutine
+--
+-- DATE:        February 13, 2016
+--
+-- REVISIONS:	  (DATE - DESCRIPTION)
+--
+-- DESIGNER:		Marc Vouve
+--
+-- PROGRAMMER:	Marc Vouve
+--
+-- INTERFACE:		waitRoutine(waitChan chan bool)
+--	waitChan:		a channel to send a message about the program being finished.
+--
+-- RETURNS: 		void
+--
+-- NOTES:			This abstracts WaitGroup.Wait() into a channel for a select statment.
+------------------------------------------------------------------------------*/
 func waitRoutine(waitChan chan bool) {
 	waitGroup.Wait()
 	waitChan <- true
 }
 
+/*-----------------------------------------------------------------------------
+-- FUNCTION:    waitRoutine
+--
+-- DATE:        February 13, 2016
+--
+-- REVISIONS:	  (DATE - DESCRIPTION)
+--
+-- DESIGNER:		Marc Vouve
+--
+-- PROGRAMMER:	Marc Vouve
+--
+-- INTERFACE:		waitRoutine(waitChan chan bool)
+--	waitChan:		a channel to send a message about the program being finished.
+--
+-- RETURNS: 		void
+--
+-- NOTES:			This abstracts WaitGroup.Wait() into a channel for a select statment.
+------------------------------------------------------------------------------*/
 func parseInt(argName string, str string) int {
 	num, err := strconv.Atoi(str)
 	if err != nil {
@@ -92,30 +160,84 @@ func parseInt(argName string, str string) int {
 	return num
 }
 
-func connect(host string, strLen int, repeat int, itterations int) {
+/*-----------------------------------------------------------------------------
+-- FUNCTION:    connect
+--
+-- DATE:        February 8, 2016
+--
+-- REVISIONS:	  February 13, 2016 - Added in auditing.
+--
+-- DESIGNER:		Marc Vouve
+--
+-- PROGRAMMER:	Marc Vouve
+--
+-- INTERFACE:		func connect(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo)
+--	    host:   The server to connect to.
+--		strLen:	  The length of the string to send.
+--		repeat:		The number of times to reconnect to the server.
+--itterations:  The number of requests to make per connection.
+--     cInfo:   The channel to pipe client info onto.
+--
+-- RETURNS: 		time.Duration: the average time the server took to echo.
+--							int: The ammount of itterations actually completed, regardless of errors.
+--
+-- NOTES:			If this errors, it breaks out of echoing, therefore the input itterations
+--						may not be acurate to the number of total itterations, which is returned.
+------------------------------------------------------------------------------*/
+func connect(conn net.Conn, strLen int, itterations int) (time.Duration, int) {
+	defer waitGroup.Done()
+
+	stopWatch := time.Now()
+	str := strGen(strLen)
+	readWriter := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+	var i int
+	for i = 0; i < itterations; i++ {
+
+		_, err := conn.Write([]byte(str))
+		if err != nil {
+			log.Println(err)
+			break
+		}
+		readWriter.ReadBytes('\n')
+	}
+	avgResponce := time.Duration(int64(time.Now().Sub(stopWatch)) / int64(itterations))
+
+	return avgResponce, i
+}
+
+func client(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo) {
 	defer waitGroup.Done()
 	for j := 0; j > repeat; j++ {
+
 		conn, err := net.Dial("tcp", host)
 		defer conn.Close()
 		if err != nil {
 			log.Println(err)
 			return
 		}
-
-		str := strGen(strLen)
-		readWriter := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
-		for i := 0; i < itterations; i++ {
-
-			_, err := conn.Write([]byte(str))
-			if err != nil {
-				log.Println(err)
-				break
-			}
-			readWriter.ReadBytes('\n')
-		}
+		avgTime, iCompleted := connect(conn, strLen, itterations)
+		cInfo <- clientInfo{responseTime: avgTime, ammountOfData: strLen * iCompleted, requestsMade: iCompleted}
 	}
 }
 
+/*-----------------------------------------------------------------------------
+-- FUNCTION:    strGen
+--
+-- DATE:        February 8, 2016
+--
+-- REVISIONS:	  February 13, 2016 - Added in auditing.
+--
+-- DESIGNER:		Marc Vouve
+--
+-- PROGRAMMER:	Marc Vouve
+--
+-- INTERFACE:		func strGen(length int) string
+--	  length:		the lenght of the string to generate.
+--
+-- RETURNS: 		string - a string of length length
+--
+-- NOTES:			  this generates a random alpha string of upper and lower case letters.
+------------------------------------------------------------------------------*/
 func strGen(length int) string {
 	runes := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 	randomString := make([]rune, length)
