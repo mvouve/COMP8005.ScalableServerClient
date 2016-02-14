@@ -30,7 +30,6 @@ package main
 import (
 	"bufio"
 	"container/list"
-	"fmt"
 	"log"
 	"math/rand"
 	"net"
@@ -119,7 +118,7 @@ Options:
 ------------------------------------------------------------------------------*/
 func audit(cInfo chan clientInfo) {
 	wait := make(chan bool)
-	//go waitRoutine(wait)
+	go waitRoutine(wait)
 	cList := new(list.List)
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, os.Kill)
@@ -219,7 +218,6 @@ func testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, 
 			log.Println(err)
 			break
 		}
-		fmt.Println(str)
 		readWriter.ReadBytes('\n')
 	}
 	avgResponce := time.Duration(int64(time.Now().Sub(stopWatch)) / int64(itterations))
@@ -254,7 +252,6 @@ func testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, 
 func client(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo) {
 	defer waitGroup.Done()
 	for j := 0; j < repeat; j++ {
-		fmt.Println(itterations)
 		conn, err := net.Dial("tcp", host)
 		if err != nil {
 			log.Println(err)

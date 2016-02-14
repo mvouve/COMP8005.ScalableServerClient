@@ -22,7 +22,6 @@ package main
 
 import (
 	"container/list"
-	"fmt"
 	"log"
 	"reflect"
 
@@ -64,7 +63,6 @@ func generateReport(fname string, elements *list.List) {
 			break
 		}
 	}
-	fmt.Println("Saving file")
 	doc.Save(fname + ".xlsx")
 }
 
@@ -90,7 +88,6 @@ func generateReport(fname string, elements *list.List) {
 ------------------------------------------------------------------------------*/
 func generateHeaders(i interface{}, row *xlsx.Row) {
 	fields := reflect.ValueOf(i)
-	fmt.Println(i)
 	for i := 0; i < fields.NumField(); i++ {
 		cell := row.AddCell()
 		cell.SetString(fields.Type().Field(i).Name)
