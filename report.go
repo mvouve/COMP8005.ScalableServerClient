@@ -54,6 +54,9 @@ const ExcelMaxRows = 1048576
 ------------------------------------------------------------------------------*/
 func generateReport(fname string, elements *list.List) {
 	doc := xlsx.NewFile()
+	if(elements.Len() <= 0) {
+		return
+	}
 	report, _ := doc.AddSheet("Sheet 1") // TODO: make this more generalised?
 	generateHeaders(elements.Front().Value, report.AddRow())
 	for e := elements.Front(); e != nil; e = e.Next() {

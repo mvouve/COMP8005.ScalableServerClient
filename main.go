@@ -1,7 +1,7 @@
 /*------------------------------------------------------------------------------
 -- DATE:	       February, 2016
 --
--- Source File:	 child_proc.go
+-- Source File:	 main.go
 --
 -- REVISIONS: 	(Date and Description)
 --
@@ -11,14 +11,13 @@
 --
 --
 -- INTERFACE:
---	func newConnection(listenFd int) (connectionInfo, error)
---	func hostString(socketAddr syscall.Sockaddr) string
---  func listen(srvInfo serverInfo)
---  func addConnectionToEPoll(epFd int, newFd int)
---  func endConnection(srvInfo serverInfo, conn connectionInfo)
---  func handleData(conn *connectionInfo) (int, error)
---  func read(fd int) (string, error)
---
+--	func main()
+--	func audit(cInfo chan clientInfo)
+--  func waitRoutine(waitChan chan bool)
+--  func parseInt(argName string, str string) int
+--  func testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, int)
+--  func client(host string, strLen int, repeat int, itterations int, cInfo chan clientInfo)
+--  func strGen(length int) string
 --
 --
 -- NOTES: This file is for functions that are part of child go routines which
@@ -30,6 +29,7 @@ package main
 import (
 	"bufio"
 	"container/list"
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
@@ -47,7 +47,7 @@ var waitGroup sync.WaitGroup
 type clientInfo struct {
 	AmmountOfData int
 	RequestsMade  int
-	ResponseTime  time.Duration
+	ResponseTime  int64
 }
 
 /*-----------------------------------------------------------------------------
@@ -56,7 +56,8 @@ type clientInfo struct {
 -- DATE:        February 6, 2016
 --
 -- REVISIONS:	  February  8, 2016 - Modified for Select
---              February 12, 2015 - changed command line inputs to use docopt
+--              February 12, 2016 - changed command line inputs to use docopt
+--							February 13, 2016 - factored out error checking.
 --
 -- DESIGNER:		Marc Vouve
 --
@@ -122,8 +123,10 @@ func audit(cInfo chan clientInfo) {
 	cList := new(list.List)
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, os.Kill)
-
+	completedConnections := 0
 	for {
+		completedConnections++
+		fmt.Println(completedConnections)
 		select {
 		case c := <-cInfo:
 			cList.PushBack(c)
@@ -161,7 +164,7 @@ func waitRoutine(waitChan chan bool) {
 }
 
 /*-----------------------------------------------------------------------------
--- FUNCTION:    waitRoutine
+-- FUNCTION:    parseInt
 --
 -- DATE:        February 13, 2016
 --
@@ -171,12 +174,13 @@ func waitRoutine(waitChan chan bool) {
 --
 -- PROGRAMMER:	Marc Vouve
 --
--- INTERFACE:		waitRoutine(waitChan chan bool)
---	waitChan:		a channel to send a message about the program being finished.
+-- INTERFACE:		func parseInt(argName string, str string) int
+--	 argname: 	name of the argument that failed
+--	 		 str:   string input for the argument
 --
 -- RETURNS: 		void
 --
--- NOTES:			This abstracts WaitGroup.Wait() into a channel for a select statment.
+-- NOTES:			This was refactered out of main to save space.
 ------------------------------------------------------------------------------*/
 func parseInt(argName string, str string) int {
 	num, err := strconv.Atoi(str)
@@ -211,6 +215,7 @@ func testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, 
 	str := strGen(strLen)
 	stopWatch := time.Now()
 	readWriter := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+
 	var i int
 	for i = 0; i < itterations; i++ {
 		_, err := conn.Write([]byte(str))
@@ -218,9 +223,13 @@ func testConnection(conn net.Conn, strLen int, itterations int) (time.Duration, 
 			log.Println(err)
 			break
 		}
-		readWriter.ReadBytes('\n')
+		_, err = readWriter.ReadBytes('\n')
+		if err != nil {
+			conn.Close()
+			break
+		}
 	}
-	avgResponce := time.Duration(int64(time.Now().Sub(stopWatch)) / int64(itterations))
+	avgResponce := time.Duration(int64(time.Now().Sub(stopWatch)) / int64(i))
 
 	return avgResponce, i
 }
@@ -255,12 +264,11 @@ func client(host string, strLen int, repeat int, itterations int, cInfo chan cli
 		conn, err := net.Dial("tcp", host)
 		if err != nil {
 			log.Println(err)
-			return
+			continue
 		}
-		defer conn.Close()
-
 		avgTime, iCompleted := testConnection(conn, strLen, itterations)
-		cInfo <- clientInfo{ResponseTime: avgTime, AmmountOfData: strLen * iCompleted, RequestsMade: iCompleted}
+		cInfo <- clientInfo{ResponseTime: int64(avgTime), AmmountOfData: strLen * iCompleted, RequestsMade: iCompleted}
+		conn.Close()
 	}
 }
 
