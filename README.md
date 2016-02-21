@@ -14,5 +14,5 @@ This server can be envoked using the syntax of:
 
 When terminated, the process will exit and generate an XLSX report listing useful information including ammount transfered to server per connection and round trip time per connection.
 
-##Testing
-This client works very will with both the select and multi-threaded server, there is some level of amiguity as to if it works well with the epoll server.
+##Known Issues
+For larger loads this program may crash when used with the EPoll server.
